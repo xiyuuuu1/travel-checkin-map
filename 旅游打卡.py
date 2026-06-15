@@ -1,12 +1,19 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import os
+import json
 import folium
 from streamlit_folium import st_folium
 
 st.set_page_config(page_title="我的旅行打卡册", page_icon="🌍", layout="wide")
+if "my_checkins" not in st.session_state:
+    if "checkins_data" in st.session_state and st.session_state.checkins_data:
+        st.session_state.my_checkins = json.loads(st.session_state.checkins_data)
+    else:
+        st.session_state.my_checkins = []
 
+def save_user_data():
+    st.session_state.checkins_data = json.dumps(st.session_state.my_checkins, ensure_ascii=False)
 CITY_COORDS = {
     "北京": {"lat": 39.9042, "lon": 116.4074},
     "上海": {"lat": 31.2304, "lon": 121.4737},
@@ -92,19 +99,16 @@ CITY_COORDS = {
 }
 
 LINE_COLOR = "#fb7da8"
+df = pd.DataFrame(st.session_state.my_checkins)
 
-DATA_FILE = "travel_checkins.csv"
-if not os.path.exists(DATA_FILE):
-    init_df = pd.DataFrame(columns=["日期", "出发地", "城市/景点", "打卡心得", "星级评价"])
-    init_df.to_csv(DATA_FILE, index=False, encoding="utf-8")
-
-df = pd.read_csv(DATA_FILE, encoding="utf-8")
-if "出发地" not in df.columns:
-    df["出发地"] = ""
-
-df["日期"] = pd.to_datetime(df["日期"])
-df_sorted = df.sort_values(by="日期", ascending=False).reset_index(drop=True)
-df_sorted["日期"] = df_sorted["日期"].dt.strftime("%Y-%m-%d")
+if df.empty:
+    df_sorted = df.copy()
+else:
+    if "出发地" not in df.columns:
+        df["出发地"] = ""
+    df["日期"] = pd.to_datetime(df["日期"])
+    df_sorted = df.sort_values(by="日期", ascending=False).reset_index(drop=True)
+    df_sorted["日期"] = df_sorted["日期"].dt.strftime("%Y-%m-%d")
 
 def split_city_scenic(full_name):
     name_str = str(full_name).strip()
@@ -125,7 +129,6 @@ if "sel_scenic" not in st.session_state:
 
 col_form, col_content = st.columns([1, 3])
 
-# 左侧：新增打卡表单（增加出发地输入）
 with col_form:
     st.header("✨ 新增打卡记录")
     with st.form("checkin_form"):
@@ -145,9 +148,8 @@ if submitted and location.strip() and start_city.strip():
         "打卡心得": note,
         "星级评价": "⭐" * rating
     }
-    df_raw = pd.read_csv(DATA_FILE, encoding="utf-8")
-    df_raw = pd.concat([df_raw, pd.DataFrame([new_row])], ignore_index=True)
-    df_raw.to_csv(DATA_FILE, index=False, encoding="utf-8")
+    st.session_state.my_checkins.append(new_row)
+    save_user_data()
     st.rerun()
 elif submitted:
     st.warning("出发地和目的地景点不能为空！")
@@ -178,9 +180,8 @@ with col_content:
                         st.session_state.edit_index = idx
                 with btn_del:
                     if st.button(f"🗑️ 删除", key=f"del_{idx}"):
-                        full_df = pd.read_csv(DATA_FILE, encoding="utf-8")
-                        full_df = full_df.drop(idx).reset_index(drop=True)
-                        full_df.to_csv(DATA_FILE, index=False, encoding="utf-8")
+                        st.session_state.my_checkins.append(new_row)
+                        save_user_data()
                         st.rerun()
 
     if st.session_state.edit_index is not None and not df_sorted.empty:
@@ -204,13 +205,14 @@ with col_content:
                 sub_cancel = st.form_submit_button("❌ 取消")
 
             if sub_save:
-                full_df = pd.read_csv(DATA_FILE, encoding="utf-8")
-                full_df.loc[edit_idx, "日期"] = new_date.strftime("%Y-%m-%d")
-                full_df.loc[edit_idx, "出发地"] = new_start.strip()
-                full_df.loc[edit_idx, "城市/景点"] = new_loc.strip()
-                full_df.loc[edit_idx, "打卡心得"] = new_note
-                full_df.loc[edit_idx, "星级评价"] = "⭐" * new_rating
-                full_df.to_csv(DATA_FILE, index=False, encoding="utf-8")
+                st.session_state.my_checkins[edit_idx] = {
+                    "日期": new_date.strftime("%Y-%m-%d"),
+                    "出发地": new_start.strip(),
+                    "城市/景点": new_loc.strip(),
+                    "打卡心得": new_note,
+                    "星级评价": "⭐" * new_rating
+                }
+                save_user_data()
                 st.session_state.edit_index = None
                 st.rerun()
             if sub_cancel:
